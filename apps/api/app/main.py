@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.core.config import get_settings
-from app.api.routes import health, ai
+from app.api.routes import health, ai, ingest
 
 logger = logging.getLogger(__name__)
 
@@ -33,3 +33,4 @@ app.add_middleware(
 
 app.include_router(health.router)
 app.include_router(ai.router)
+app.include_router(ingest.router)

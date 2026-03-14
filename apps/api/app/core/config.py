@@ -23,9 +23,20 @@ class Settings(BaseSettings):
     ollama_chat_model: str = "qwen2.5:7b"
     ollama_timeout_seconds: int = 120
 
+    # Document ingestion (Phase 3)
+    docs_base_path: str = "./docs"
+    ingest_max_file_size_mb: int = 10
+    chunk_size_chars: int = 1500
+    chunk_overlap_chars: int = 200
+    allowed_doc_extensions: str = ".pdf,.md,.txt"
+
     @property
     def cors_origins_list(self) -> List[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @property
+    def allowed_extensions_list(self) -> List[str]:
+        return [e.strip().lower() for e in self.allowed_doc_extensions.split(",") if e.strip()]
 
 
 @lru_cache

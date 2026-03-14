@@ -1,6 +1,6 @@
 # API (FastAPI Backend)
 
-FastAPI backend for the Company RAG Chatbot. Phase 2 adds local Ollama connectivity; RAG and document ingestion come in later phases.
+FastAPI backend for the Company RAG Chatbot. Phase 2 adds local Ollama; Phase 3 adds document ingestion foundation (no vectors yet).
 
 ## Structure
 
@@ -8,16 +8,26 @@ FastAPI backend for the Company RAG Chatbot. Phase 2 adds local Ollama connectiv
 apps/api/
   app/
     main.py              # FastAPI app, CORS, exception handler, routers
+    cli_ingest.py        # CLI: python -m app.cli_ingest
     api/
       routes/
         health.py        # GET /health
         ai.py            # GET /ai/health, POST /ai/chat
+        ingest.py        # GET /ingest/health, POST /ingest/preview
     core/
       config.py          # Env-based config (pydantic-settings)
-    services/
-      ollama_client.py   # Ollama HTTP client
     schemas/
-      ai.py              # Request/response models for AI routes
+      ai.py
+      ingest.py          # Request/response for ingestion preview
+    services/
+      ollama_client.py
+      ingestion/
+        loader.py        # PDF, MD, TXT load
+        normalizer.py    # Text normalization
+        chunker.py       # Character chunking
+        ingest_service.py
+    utils/
+      files.py           # Safe doc folder scan
   requirements.txt
   .env.example
   README.md
@@ -141,6 +151,64 @@ Example response:
 
 ---
 
+## Phase 3 — Document ingestion foundation
+
+Document loading, normalization, and chunking for future RAG. **No vector DB, no embeddings, no Ollama** in this phase.
+
+### Supported file types
+
+- **PDF** (`.pdf`) — text extraction via pypdf; no OCR
+- **Markdown** (`.md`)
+- **Plain text** (`.txt`)
+
+### Config (see .env.example)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DOCS_BASE_PATH` | ./docs | Folder to scan for documents (relative to process cwd) |
+| `INGEST_MAX_FILE_SIZE_MB` | 10 | Skip files larger than this |
+| `CHUNK_SIZE_CHARS` | 1500 | Target chunk size in characters |
+| `CHUNK_OVERLAP_CHARS` | 200 | Overlap between chunks |
+| `ALLOWED_DOC_EXTENSIONS` | .pdf,.md,.txt | Comma-separated extensions |
+
+### Placing files
+
+Put `.pdf`, `.md`, or `.txt` files in the repo **docs/** folder (or the path set by `DOCS_BASE_PATH`). See [docs/README.md](../../docs/README.md). The API and CLI resolve `DOCS_BASE_PATH` relative to the current working directory. If your files are in the monorepo root **docs/** and you run the server from `apps/api`, set `DOCS_BASE_PATH=../../docs` in `.env`.
+
+### Ingestion preview API
+
+**GET /ingest/health** — Check ingestion config and whether docs path exists:
+
+```bash
+curl http://localhost:8000/ingest/health
+```
+
+**POST /ingest/preview** — Scan, load, normalize, chunk; return preview (no persistence):
+
+```bash
+curl -X POST http://localhost:8000/ingest/preview \
+  -H "Content-Type: application/json" \
+  -d '{"recursive": true, "include_chunks": true}'
+```
+
+Optional body: `path` (override base path), `recursive` (default true), `include_chunks` (default true). Omit body for defaults.
+
+### Ingestion preview CLI
+
+From `apps/api` with venv activated:
+
+```bash
+python -m app.cli_ingest
+```
+
+Options:
+
+- `--path ./docs` — override docs path
+- `--no-recursive` — do not scan subdirectories
+- `--show-first-chunk` — print first chunk preview per document
+
+---
+
 ## Configuration
 
 | Variable | Default | Description |
@@ -152,6 +220,11 @@ Example response:
 | `OLLAMA_BASE_URL` | http://localhost:11434 | Ollama API base URL |
 | `OLLAMA_CHAT_MODEL` | qwen2.5:7b | Chat model name |
 | `OLLAMA_TIMEOUT_SECONDS` | 120 | Timeout for Ollama requests |
+| `DOCS_BASE_PATH` | ./docs | Document root for ingestion |
+| `INGEST_MAX_FILE_SIZE_MB` | 10 | Max file size (MB) |
+| `CHUNK_SIZE_CHARS` | 1500 | Chunk size (chars) |
+| `CHUNK_OVERLAP_CHARS` | 200 | Chunk overlap (chars) |
+| `ALLOWED_DOC_EXTENSIONS` | .pdf,.md,.txt | Allowed extensions |
 
 ---
 
@@ -159,3 +232,4 @@ Example response:
 
 - Python 3.10+
 - Ollama installed and running locally (for `/ai/health` and `/ai/chat`)
+- For ingestion: place PDF/MD/TXT under `DOCS_BASE_PATH` (default `./docs`)
