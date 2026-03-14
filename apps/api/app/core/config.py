@@ -37,6 +37,13 @@ class Settings(BaseSettings):
     ollama_embed_model: str = "nomic-embed-text"
     vector_search_top_k: int = 5
 
+    # RAG orchestration (Phase 5)
+    rag_top_k: int = 5
+    rag_max_context_chars: int = 6000
+    rag_min_score: float = 0.15
+    rag_temperature: float = 0.2
+    rag_system_prompt_name: str = "default_company_assistant"
+
     @property
     def cors_origins_list(self) -> List[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]

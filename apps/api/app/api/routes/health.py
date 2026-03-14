@@ -18,4 +18,5 @@ def health():
         "ollama_model": settings.ollama_chat_model,
         "vector_configured": True,
         "vector_provider": settings.vector_db_provider,
+        "rag_configured": True,
     }

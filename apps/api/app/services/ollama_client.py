@@ -3,7 +3,7 @@ Ollama client service. Handles availability check and plain chat completion.
 Uses httpx; returns normalized Python data. Easy to extend for streaming/RAG later.
 """
 import logging
-from typing import Any, Optional
+from typing import Any, Dict, List, Optional
 
 import httpx
 
@@ -64,6 +64,63 @@ class OllamaClient:
             "messages": [{"role": "user", "content": message}],
             "stream": False,
         }
+        try:
+            with self._client() as client:
+                r = client.post("/api/chat", json=payload)
+                r.raise_for_status()
+        except httpx.TimeoutException:
+            raise OllamaError(
+                "Ollama request timed out",
+                details=f"timeout_seconds={self.timeout}",
+            )
+        except httpx.ConnectError as e:
+            raise OllamaError(
+                "Could not connect to Ollama",
+                details=str(e),
+            )
+        except httpx.HTTPStatusError as e:
+            raise OllamaError(
+                f"Ollama returned error: {e.response.status_code}",
+                status_code=e.response.status_code,
+                details=e.response.text[:500] if e.response.text else None,
+            )
+
+        data = r.json()
+        if not isinstance(data, dict):
+            raise OllamaError("Invalid Ollama response: not a JSON object", details=data)
+
+        msg = data.get("message")
+        if not isinstance(msg, dict):
+            raise OllamaError("Invalid Ollama response: missing or invalid 'message'", details=data)
+
+        content = msg.get("content")
+        if content is None:
+            content = ""
+        if not isinstance(content, str):
+            content = str(content)
+
+        return {
+            "model": data.get("model") or self.model,
+            "response": content,
+        }
+
+    def chat_with_options(
+        self,
+        messages: List[Dict[str, str]],
+        temperature: Optional[float] = None,
+    ) -> Dict[str, str]:
+        """
+        Send a list of messages (e.g. system + user) to Ollama chat API.
+        Optional temperature. Returns {"model": "...", "response": "..."}.
+        Raises OllamaError on failure.
+        """
+        payload = {
+            "model": self.model,
+            "messages": messages,
+            "stream": False,
+        }
+        if temperature is not None:
+            payload["options"] = {"temperature": temperature}
         try:
             with self._client() as client:
                 r = client.post("/api/chat", json=payload)

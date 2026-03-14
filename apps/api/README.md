@@ -1,6 +1,6 @@
 # API (FastAPI Backend)
 
-FastAPI backend for the Company RAG Chatbot. Phase 2: Ollama; Phase 3: document ingestion; Phase 4: vector DB (Chroma + Ollama embeddings).
+FastAPI backend for the Company RAG Chatbot. Phase 2: Ollama; Phase 3: ingestion; Phase 4: vector DB; Phase 5: RAG chat orchestration.
 
 ## Structure
 
@@ -10,27 +10,26 @@ apps/api/
     main.py              # FastAPI app, CORS, exception handler, routers
     cli_ingest.py        # CLI: python -m app.cli_ingest
     cli_index.py         # CLI: python -m app.cli_index
+    cli_rag.py           # CLI: python -m app.cli_rag
     api/
       routes/
         health.py        # GET /health
-        ai.py            # GET /ai/health, POST /ai/chat
+        ai.py            # GET /ai/health, POST /ai/chat (plain LLM debug)
         ingest.py        # GET /ingest/health, POST /ingest/preview
         vector.py        # GET /vector/health, POST /vector/index, POST /vector/search, DELETE /vector/index
+        rag.py           # GET /rag/health, POST /rag/chat, POST /rag/chat/preview
     core/
       config.py          # Env-based config (pydantic-settings)
     schemas/
-      ai.py
-      ingest.py
-      vector.py          # Index/search request and response
+      ai.py, ingest.py, vector.py, rag.py
     services/
-      ollama_client.py
+      ollama_client.py   # chat + chat_with_options (system + temperature)
       embeddings.py      # Ollama /api/embed
-      vector_store/
-        chroma_store.py  # Persistent Chroma
-      indexing/
-        index_service.py # Ingest -> embed -> store; search
+      vector_store/      # Chroma
+      indexing/         # index + search
+      retrieval/        # retrieve(): search + filter + dedupe + trim
+      rag/              # prompt_builder, rag_service
       ingestion/
-        loader.py, normalizer.py, chunker.py, ingest_service.py
     utils/
       files.py
   requirements.txt
@@ -291,6 +290,78 @@ Chroma data is stored under `CHROMA_PERSIST_DIRECTORY` (default `./data/chroma`)
 
 ---
 
+## Phase 5 — Retrieval + RAG chat orchestration
+
+Retrieval-augmented answers: retrieve relevant chunks, build a grounded prompt, generate an answer with sources. **No conversation persistence in this phase.**
+
+### What changed
+
+- **POST /ai/chat** — Unchanged. Plain direct LLM call (no retrieval). Use for debugging or simple chat.
+- **POST /rag/chat** — New. Retrieval-augmented: runs semantic search, filters by score, builds a grounded system + context + question prompt, calls Ollama, returns answer + sources + optional debug.
+
+### Env vars (see .env.example)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `RAG_TOP_K` | 5 | Max chunks to retrieve |
+| `RAG_MAX_CONTEXT_CHARS` | 6000 | Max total context length (trim after dedupe) |
+| `RAG_MIN_SCORE` | 0.15 | Minimum similarity score to keep a chunk |
+| `RAG_TEMPERATURE` | 0.2 | LLM temperature for RAG answers |
+| `RAG_SYSTEM_PROMPT_NAME` | default_company_assistant | Prompt template name |
+
+### Index first
+
+RAG uses the same vector collection as Phase 4. Index documents before using RAG:
+
+```bash
+curl -X POST http://localhost:8000/vector/index \
+  -H "Content-Type: application/json" \
+  -d '{"recursive": true}'
+```
+
+Or from CLI: `python -m app.cli_index` (from `apps/api` with venv active).
+
+### RAG health and chat
+
+**GET /rag/health** — Config and dependency readiness (collection may be empty):
+
+```bash
+curl http://localhost:8000/rag/health
+```
+
+**POST /rag/chat** — Retrieval-augmented answer:
+
+```bash
+curl -X POST http://localhost:8000/rag/chat \
+  -H "Content-Type: application/json" \
+  -d '{"message": "How does leave approval work?", "include_sources": true, "include_debug": true}'
+```
+
+**POST /rag/chat/preview** — Retrieval only (no LLM): selected sources and stats:
+
+```bash
+curl -X POST http://localhost:8000/rag/chat/preview \
+  -H "Content-Type: application/json" \
+  -d '{"message": "How does leave approval work?"}'
+```
+
+### CLI RAG test
+
+From `apps/api` with venv active:
+
+```bash
+python -m app.cli_rag --question "How does leave approval work?"
+python -m app.cli_rag --question "What is the policy?" --debug
+```
+
+### Behavior
+
+- If no chunks pass the score filter, the API returns a safe message: *"I could not find enough support in the indexed documents to answer that confidently."* No LLM call in that case.
+- Sources are citation-ready: `file_name`, `chunk_index`, `score`, `text`, `metadata`.
+- No multi-turn or chat history persistence yet.
+
+---
+
 ## Configuration
 
 | Variable | Default | Description |
@@ -312,6 +383,11 @@ Chroma data is stored under `CHROMA_PERSIST_DIRECTORY` (default `./data/chroma`)
 | `CHROMA_COLLECTION_NAME` | company_knowledge_base | Collection name |
 | `OLLAMA_EMBED_MODEL` | nomic-embed-text | Embedding model |
 | `VECTOR_SEARCH_TOP_K` | 5 | Default search result count |
+| `RAG_TOP_K` | 5 | RAG retrieval top_k |
+| `RAG_MAX_CONTEXT_CHARS` | 6000 | Max context length (chars) |
+| `RAG_MIN_SCORE` | 0.15 | Min similarity score |
+| `RAG_TEMPERATURE` | 0.2 | LLM temperature for RAG |
+| `RAG_SYSTEM_PROMPT_NAME` | default_company_assistant | Prompt template |
 
 ---
 
@@ -321,3 +397,4 @@ Chroma data is stored under `CHROMA_PERSIST_DIRECTORY` (default `./data/chroma`)
 - Ollama installed and running (chat + embeddings). Pull `qwen2.5:7b` and `nomic-embed-text`.
 - For ingestion/indexing: place PDF/MD/TXT under `DOCS_BASE_PATH` (default `./docs`).
 - Chroma stores vectors under `CHROMA_PERSIST_DIRECTORY` (default `./data/chroma`).
+- For RAG: index docs first (POST /vector/index or `python -m app.cli_index`); then use POST /rag/chat or `python -m app.cli_rag`.
