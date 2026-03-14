@@ -19,17 +19,7 @@ A local AI RAG (Retrieval-Augmented Generation) chatbot with a Next.js frontend 
 
 ## How to Run
 
-### Frontend (Next.js)
-
-```bash
-cd apps/web
-npm install
-npm run dev
-```
-
-Open [http://localhost:3000](http://localhost:3000) in your browser.
-
-### Backend (FastAPI)
+### Backend (FastAPI) — run first
 
 ```bash
 cd apps/api
@@ -39,12 +29,24 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload
 ```
 
-API base URL: [http://localhost:8000](http://localhost:8000). Health check: [http://localhost:8000/health](http://localhost:8000/health).
+API base URL: [http://localhost:8000](http://localhost:8000). Health: [http://localhost:8000/health](http://localhost:8000/health).
+
+### Frontend (Next.js)
+
+Set `NEXT_PUBLIC_API_BASE_URL=http://localhost:8000` in `apps/web/.env.local` (see `apps/web/.env.example`). Then:
+
+```bash
+cd apps/web
+npm install
+npm run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000). The frontend talks to the FastAPI backend directly. Index documents first (via backend ingest/vector APIs) for good RAG answers.
 
 ## Current Phase
 
-- **Foundation only.** RAG logic, chat UI, LangChain, Chroma, Ollama, and similar integrations will be added in later phases.
-- Frontend and backend are minimal and ready to extend.
+- **Phase 6 — Next.js chat frontend:** Chat UI, RAG integration (`POST /rag/chat`), source citations, health/status panel, debug mode. No streaming, auth, or persistent chat history.
+- Backend: RAG, vector DB, ingest, and AI routes are in place.
 
 ## Requirements
 
