@@ -16,4 +16,6 @@ def health():
         "ai_configured": True,
         "ollama_base_url": settings.ollama_base_url,
         "ollama_model": settings.ollama_chat_model,
+        "vector_configured": True,
+        "vector_provider": settings.vector_db_provider,
     }

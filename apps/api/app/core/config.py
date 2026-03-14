@@ -30,6 +30,13 @@ class Settings(BaseSettings):
     chunk_overlap_chars: int = 200
     allowed_doc_extensions: str = ".pdf,.md,.txt"
 
+    # Vector DB and embeddings (Phase 4)
+    vector_db_provider: str = "chroma"
+    chroma_persist_directory: str = "./data/chroma"
+    chroma_collection_name: str = "company_knowledge_base"
+    ollama_embed_model: str = "nomic-embed-text"
+    vector_search_top_k: int = 5
+
     @property
     def cors_origins_list(self) -> List[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]

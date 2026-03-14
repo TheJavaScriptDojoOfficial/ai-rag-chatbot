@@ -1,6 +1,6 @@
 # API (FastAPI Backend)
 
-FastAPI backend for the Company RAG Chatbot. Phase 2 adds local Ollama; Phase 3 adds document ingestion foundation (no vectors yet).
+FastAPI backend for the Company RAG Chatbot. Phase 2: Ollama; Phase 3: document ingestion; Phase 4: vector DB (Chroma + Ollama embeddings).
 
 ## Structure
 
@@ -9,25 +9,30 @@ apps/api/
   app/
     main.py              # FastAPI app, CORS, exception handler, routers
     cli_ingest.py        # CLI: python -m app.cli_ingest
+    cli_index.py         # CLI: python -m app.cli_index
     api/
       routes/
         health.py        # GET /health
         ai.py            # GET /ai/health, POST /ai/chat
         ingest.py        # GET /ingest/health, POST /ingest/preview
+        vector.py        # GET /vector/health, POST /vector/index, POST /vector/search, DELETE /vector/index
     core/
       config.py          # Env-based config (pydantic-settings)
     schemas/
       ai.py
-      ingest.py          # Request/response for ingestion preview
+      ingest.py
+      vector.py          # Index/search request and response
     services/
       ollama_client.py
+      embeddings.py      # Ollama /api/embed
+      vector_store/
+        chroma_store.py  # Persistent Chroma
+      indexing/
+        index_service.py # Ingest -> embed -> store; search
       ingestion/
-        loader.py        # PDF, MD, TXT load
-        normalizer.py    # Text normalization
-        chunker.py       # Character chunking
-        ingest_service.py
+        loader.py, normalizer.py, chunker.py, ingest_service.py
     utils/
-      files.py           # Safe doc folder scan
+      files.py
   requirements.txt
   .env.example
   README.md
@@ -209,6 +214,83 @@ Options:
 
 ---
 
+## Phase 4 — Vector DB integration
+
+Embeddings (Ollama), persistent vector store (Chroma), indexing and semantic search. **No RAG answer generation yet.**
+
+### Env vars (see .env.example)
+
+- `VECTOR_DB_PROVIDER` — default `chroma`
+- `CHROMA_PERSIST_DIRECTORY` — default `./data/chroma` (created if missing; already gitignored)
+- `CHROMA_COLLECTION_NAME` — default `company_knowledge_base`
+- `OLLAMA_EMBED_MODEL` — default `nomic-embed-text`
+- `VECTOR_SEARCH_TOP_K` — default `5`
+
+### Ollama and embedding model
+
+1. Start Ollama (same as Phase 2):
+   ```bash
+   ollama serve
+   ```
+2. Pull the embedding model (must match `OLLAMA_EMBED_MODEL`):
+   ```bash
+   ollama pull nomic-embed-text
+   ```
+
+### Indexing
+
+Indexing runs the ingestion pipeline (scan → load → normalize → chunk), generates embeddings via Ollama, and writes to Chroma. Re-indexing a document replaces its chunks (no duplicates).
+
+**API:**
+
+```bash
+# Index from default docs path
+curl -X POST http://localhost:8000/vector/index \
+  -H "Content-Type: application/json" \
+  -d '{"path": "./docs", "recursive": true, "reset_collection": false}'
+
+# Clear collection then index (local testing)
+curl -X POST http://localhost:8000/vector/index \
+  -H "Content-Type: application/json" \
+  -d '{"reset_collection": true}'
+```
+
+**CLI (from apps/api, venv active):**
+
+```bash
+python -m app.cli_index
+python -m app.cli_index --reset-collection
+python -m app.cli_index --search "leave policy"
+```
+
+### Vector health and search
+
+**GET /vector/health** — Config and Chroma access (collection may be empty):
+
+```bash
+curl http://localhost:8000/vector/health
+```
+
+**POST /vector/search** — Semantic search preview (no answer generation):
+
+```bash
+curl -X POST http://localhost:8000/vector/search \
+  -H "Content-Type: application/json" \
+  -d '{"query": "How does leave approval work?", "top_k": 5, "include_text": true}'
+```
+
+**DELETE /vector/index** — Clear the collection (local testing):
+
+```bash
+curl -X DELETE http://localhost:8000/vector/index
+```
+
+### Persistence
+
+Chroma data is stored under `CHROMA_PERSIST_DIRECTORY` (default `./data/chroma`). The repo `.gitignore` already excludes `data/`. No DB server required.
+
+---
+
 ## Configuration
 
 | Variable | Default | Description |
@@ -225,11 +307,17 @@ Options:
 | `CHUNK_SIZE_CHARS` | 1500 | Chunk size (chars) |
 | `CHUNK_OVERLAP_CHARS` | 200 | Chunk overlap (chars) |
 | `ALLOWED_DOC_EXTENSIONS` | .pdf,.md,.txt | Allowed extensions |
+| `VECTOR_DB_PROVIDER` | chroma | Vector store provider |
+| `CHROMA_PERSIST_DIRECTORY` | ./data/chroma | Chroma persistence path |
+| `CHROMA_COLLECTION_NAME` | company_knowledge_base | Collection name |
+| `OLLAMA_EMBED_MODEL` | nomic-embed-text | Embedding model |
+| `VECTOR_SEARCH_TOP_K` | 5 | Default search result count |
 
 ---
 
 ## Requirements
 
 - Python 3.10+
-- Ollama installed and running locally (for `/ai/health` and `/ai/chat`)
-- For ingestion: place PDF/MD/TXT under `DOCS_BASE_PATH` (default `./docs`)
+- Ollama installed and running (chat + embeddings). Pull `qwen2.5:7b` and `nomic-embed-text`.
+- For ingestion/indexing: place PDF/MD/TXT under `DOCS_BASE_PATH` (default `./docs`).
+- Chroma stores vectors under `CHROMA_PERSIST_DIRECTORY` (default `./data/chroma`).
