@@ -1,7 +1,8 @@
 """
 RAG orchestration: retrieval -> prompt -> Ollama -> answer + sources + debug.
+Supports both one-shot and streaming responses.
 """
-from typing import List, Optional
+from typing import Any, Dict, Generator, List, Optional
 
 from app.core.config import get_settings
 from app.schemas.rag import (
@@ -121,6 +122,109 @@ def run_rag_chat(req: RAGChatRequest) -> RAGChatResponse:
         sources=sources,
         debug=debug,
     )
+
+
+def run_rag_chat_stream(req: RAGChatRequest) -> Generator[Dict[str, Any], None, None]:
+    """
+    Run RAG with streaming: yield retrieval event, token events, then complete event.
+    On no context or error, yield error or complete with fallback answer.
+    Event shapes: {"event": "retrieval"|"token"|"complete"|"error", "data": {...}}.
+    """
+    settings = get_settings()
+    client = OllamaClient(
+        base_url=settings.ollama_base_url,
+        model=settings.ollama_chat_model,
+        timeout_seconds=float(settings.ollama_timeout_seconds),
+    )
+
+    try:
+        retrieval_result = retrieve(
+            query=req.message,
+            top_k=req.top_k,
+            min_score=req.min_score,
+            max_context_chars=None,
+        )
+    except Exception as e:
+        yield {"event": "error", "data": {"message": f"Retrieval failed: {e}"}}
+        return
+
+    yield {
+        "event": "retrieval",
+        "data": {
+            "retrieved_count": retrieval_result.retrieved_count,
+            "selected_count": retrieval_result.selected_count,
+        },
+    }
+
+    if not retrieval_result.chunks:
+        debug = None
+        if req.include_debug:
+            debug = RAGDebugInfo(
+                top_k_used=retrieval_result.top_k_used,
+                min_score_used=retrieval_result.min_score_used,
+                context_char_count=0,
+                retrieved_count=retrieval_result.retrieved_count,
+                selected_count=0,
+                model=settings.ollama_chat_model,
+                prompt_name=settings.rag_system_prompt_name,
+            )
+        yield {
+            "event": "complete",
+            "data": {
+                "model": settings.ollama_chat_model,
+                "answer": INSUFFICIENT_EVIDENCE_ANSWER,
+                "sources": [],
+                "debug": debug.model_dump() if debug else None,
+            },
+        }
+        return
+
+    messages = build_rag_messages(
+        question=req.message,
+        chunks=retrieval_result.chunks,
+        prompt_name=settings.rag_system_prompt_name,
+    )
+
+    accumulated: List[str] = []
+    try:
+        for chunk in client.chat_with_options_stream(
+            messages=messages,
+            temperature=settings.rag_temperature,
+        ):
+            accumulated.append(chunk)
+            yield {"event": "token", "data": {"text": chunk}}
+    except Exception as e:
+        yield {"event": "error", "data": {"message": str(e)}}
+        return
+
+    answer = "".join(accumulated).strip() or INSUFFICIENT_EVIDENCE_ANSWER
+    model_used = settings.ollama_chat_model
+    sources = (
+        [_search_match_to_rag_source(m) for m in retrieval_result.chunks]
+        if req.include_sources
+        else []
+    )
+    debug_data = None
+    if req.include_debug:
+        debug_data = RAGDebugInfo(
+            top_k_used=retrieval_result.top_k_used,
+            min_score_used=retrieval_result.min_score_used,
+            context_char_count=retrieval_result.context_char_count,
+            retrieved_count=retrieval_result.retrieved_count,
+            selected_count=retrieval_result.selected_count,
+            model=model_used,
+            prompt_name=settings.rag_system_prompt_name,
+        ).model_dump()
+
+    yield {
+        "event": "complete",
+        "data": {
+            "model": model_used,
+            "answer": answer,
+            "sources": [s.model_dump() for s in sources],
+            "debug": debug_data,
+        },
+    }
 
 
 def run_rag_preview(query: str, top_k: Optional[int] = None, min_score: Optional[float] = None) -> dict:

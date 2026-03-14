@@ -19,7 +19,11 @@ export function MessageList({
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages.length, loading]);
+  }, [
+    messages.length,
+    loading,
+    messages[messages.length - 1]?.content?.length ?? 0,
+  ]);
 
   return (
     <div className="flex flex-col gap-4 py-4">
@@ -30,7 +34,7 @@ export function MessageList({
           showDebug={showDebug}
         />
       ))}
-      {loading && (
+      {loading && messages.length > 0 && messages[messages.length - 1]?.role !== "assistant" && (
         <div className="flex justify-start">
           <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-500 shadow-sm">
             <span className="animate-pulse">Thinking…</span>

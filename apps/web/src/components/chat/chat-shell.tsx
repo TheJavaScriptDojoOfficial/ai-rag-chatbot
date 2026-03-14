@@ -1,19 +1,24 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { MessageList } from "./message-list";
 import { ChatInput } from "./chat-input";
-import { StatusBar } from "./status-bar";
-import { DebugPanel } from "./debug-panel";
-import { postRAGChat } from "@/lib/api/rag";
+import { UtilityPanel } from "./utility-panel";
+import { postRAGChat, streamRagChat } from "@/lib/api/rag";
 import {
   getHealth,
   getRAGHealth,
   getAIHealth,
   getVectorHealth,
+  getIngestHealth,
 } from "@/lib/api/health";
 import type { ChatMessage } from "@/lib/types/chat";
-import type { AppHealthSummary } from "@/lib/types/health";
+import type {
+  AppHealthSummary,
+  RAGHealthResponse,
+  VectorHealthResponse,
+} from "@/lib/types/health";
+import type { IngestHealthResponse } from "@/lib/api/ingest";
 import type { ApiError } from "@/lib/api/client";
 
 const EMPTY_SUMMARY: AppHealthSummary = {
@@ -57,10 +62,15 @@ function getErrorMessage(err: unknown): string {
 export function ChatShell() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(false);
+  const [streaming, setStreaming] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
   const [debugMode, setDebugMode] = useState(false);
   const [lastDebug, setLastDebug] = useState<ChatMessage["debug"]>(null);
   const [healthSummary, setHealthSummary] = useState<AppHealthSummary>(EMPTY_SUMMARY);
   const [healthLoading, setHealthLoading] = useState(false);
+  const [ragHealth, setRagHealth] = useState<RAGHealthResponse | null>(null);
+  const [vectorHealth, setVectorHealth] = useState<VectorHealthResponse | null>(null);
+  const [ingestHealth, setIngestHealth] = useState<IngestHealthResponse | null>(null);
 
   const fetchHealth = useCallback(async () => {
     setHealthLoading(true);
@@ -78,8 +88,10 @@ export function ChatShell() {
 
     try {
       const r = await getRAGHealth();
+      setRagHealth(r);
       rag = r.status === "ok" ? "ok" : "degraded";
     } catch {
+      setRagHealth(null);
       rag = "fail";
     }
 
@@ -92,9 +104,18 @@ export function ChatShell() {
 
     try {
       const v = await getVectorHealth();
+      setVectorHealth(v);
       vector = v.status === "ok" ? "ok" : "degraded";
     } catch {
+      setVectorHealth(null);
       vector = "fail";
+    }
+
+    try {
+      const ing = await getIngestHealth();
+      setIngestHealth(ing);
+    } catch {
+      setIngestHealth(null);
     }
 
     setHealthSummary(deriveSummary(api, rag, ai, vector));
@@ -124,40 +145,126 @@ export function ChatShell() {
       };
       setMessages((prev) => [...prev, placeholder]);
       setLoading(true);
+      setStreaming(true);
+      abortRef.current = new AbortController();
+      const signal = abortRef.current.signal;
+      const streamErrorRef = { current: null as string | null };
+      const streamHadContentRef = { current: false };
+
+      const tryStreaming = async () => {
+        await streamRagChat(
+          {
+            message: text,
+            include_sources: true,
+            include_debug: debugMode,
+          },
+          {
+            onToken: (chunk) => {
+              streamHadContentRef.current = true;
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === assistantId
+                    ? { ...m, content: (m.content || "") + chunk }
+                    : m
+                )
+              );
+            },
+            onComplete: (payload) => {
+              streamHadContentRef.current = true;
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === assistantId
+                    ? {
+                        ...m,
+                        content: payload.answer || m.content,
+                        sources: payload.sources ?? [],
+                        debug: payload.debug ?? undefined,
+                      }
+                    : m
+                )
+              );
+              if (payload.debug) setLastDebug(payload.debug);
+            },
+            onError: (msg) => {
+              streamErrorRef.current = msg;
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === assistantId ? { ...m, error: msg } : m
+                )
+              );
+            },
+          },
+          signal
+        );
+      };
 
       try {
-        const res = await postRAGChat({
-          message: text,
-          include_sources: true,
-          include_debug: debugMode,
-        });
-
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === assistantId
-              ? {
-                  ...m,
-                  content: res.answer,
-                  sources: res.sources ?? [],
-                  debug: res.debug ?? undefined,
-                }
-              : m
-          )
-        );
-        if (res.debug) setLastDebug(res.debug);
+        await tryStreaming();
       } catch (err) {
-        const msg = getErrorMessage(err);
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === assistantId ? { ...m, content: "", error: msg } : m
-          )
-        );
+        if (signal.aborted) {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === assistantId ? { ...m, error: undefined } : m
+            )
+          );
+        } else {
+          streamErrorRef.current = getErrorMessage(err);
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === assistantId
+                ? { ...m, error: streamErrorRef.current ?? undefined }
+                : m
+            )
+          );
+        }
       } finally {
         setLoading(false);
+        setStreaming(false);
+        abortRef.current = null;
+      }
+
+      if (signal.aborted) return;
+
+      if (streamErrorRef.current && !streamHadContentRef.current) {
+        try {
+          const res = await postRAGChat({
+            message: text,
+            include_sources: true,
+            include_debug: debugMode,
+          });
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === assistantId
+                ? {
+                    ...m,
+                    content: res.answer,
+                    sources: res.sources ?? [],
+                    debug: res.debug ?? undefined,
+                    error: undefined,
+                  }
+                : m
+            )
+          );
+          if (res.debug) setLastDebug(res.debug);
+        } catch (fallbackErr) {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === assistantId
+                ? { ...m, error: getErrorMessage(fallbackErr) }
+                : m
+            )
+          );
+        }
       }
     },
     [debugMode]
   );
+
+  const stopStreaming = useCallback(() => {
+    if (abortRef.current) {
+      abortRef.current.abort();
+    }
+  }, []);
 
   const empty = messages.length === 0;
 
@@ -196,28 +303,13 @@ export function ChatShell() {
         )}
       </div>
       <div className="shrink-0 border-t border-slate-200 bg-white p-4">
-        <ChatInput onSend={sendMessage} disabled={loading} />
-      </div>
-    </div>
-  );
-
-  const statusColumn = (
-    <div className="space-y-6">
-      <StatusBar
-        summary={healthSummary}
-        onRefresh={fetchHealth}
-        refreshing={healthLoading}
-      />
-      <label className="flex items-center gap-2 cursor-pointer">
-        <input
-          type="checkbox"
-          checked={debugMode}
-          onChange={(e) => setDebugMode(e.target.checked)}
-          className="rounded border-slate-300 text-slate-700 focus:ring-slate-400"
+        <ChatInput
+          onSend={sendMessage}
+          disabled={loading}
+          streaming={streaming}
+          onStop={stopStreaming}
         />
-        <span className="text-sm text-slate-700">Debug mode</span>
-      </label>
-      <DebugPanel debug={lastDebug ?? undefined} />
+      </div>
     </div>
   );
 
@@ -230,10 +322,20 @@ export function ChatShell() {
         {chatColumn}
       </section>
       <aside
-        className="lg:w-80 shrink-0 rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
-        aria-label="Status and debug"
+        className="lg:w-80 shrink-0 flex flex-col rounded-xl border border-slate-200 bg-white p-4 shadow-sm min-h-0"
+        aria-label="Status, debug, and indexing"
       >
-        {statusColumn}
+        <UtilityPanel
+          summary={healthSummary}
+          onRefresh={fetchHealth}
+          refreshing={healthLoading}
+          debugMode={debugMode}
+          onDebugModeChange={setDebugMode}
+          lastDebug={lastDebug ?? undefined}
+          ragHealth={ragHealth}
+          vectorHealth={vectorHealth}
+          ingestHealth={ingestHealth}
+        />
       </aside>
     </div>
   );

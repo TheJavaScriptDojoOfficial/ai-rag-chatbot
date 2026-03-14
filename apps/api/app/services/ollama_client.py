@@ -1,9 +1,10 @@
 """
 Ollama client service. Handles availability check and plain chat completion.
-Uses httpx; returns normalized Python data. Easy to extend for streaming/RAG later.
+Uses httpx; returns normalized Python data. Supports streaming via chat_with_options_stream.
 """
+import json
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterator, List, Optional
 
 import httpx
 
@@ -160,3 +161,46 @@ class OllamaClient:
             "model": data.get("model") or self.model,
             "response": content,
         }
+
+    def chat_with_options_stream(
+        self,
+        messages: List[Dict[str, str]],
+        temperature: Optional[float] = None,
+    ) -> Iterator[str]:
+        """
+        Stream chat completion from Ollama. Yields incremental text chunks.
+        Does not raise; yields nothing and returns on connection/parse errors.
+        """
+        payload = {
+            "model": self.model,
+            "messages": messages,
+            "stream": True,
+        }
+        if temperature is not None:
+            payload["options"] = {"temperature": temperature}
+        try:
+            with self._client() as client:
+                with client.stream("POST", "/api/chat", json=payload) as response:
+                    response.raise_for_status()
+                    for line in response.iter_lines():
+                        if not line or not line.strip():
+                            continue
+                        try:
+                            data = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+                        if not isinstance(data, dict):
+                            continue
+                        msg = data.get("message")
+                        if isinstance(msg, dict):
+                            content = msg.get("content")
+                            if isinstance(content, str) and content:
+                                yield content
+        except httpx.TimeoutException:
+            logger.warning("Ollama stream timeout: %s", self.base_url)
+        except httpx.ConnectError as e:
+            logger.warning("Ollama stream connection failed: %s", e)
+        except httpx.HTTPStatusError as e:
+            logger.warning("Ollama stream HTTP error: %s", e.response.status_code)
+        except Exception as e:
+            logger.warning("Ollama stream error: %s", e)

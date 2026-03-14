@@ -7,12 +7,16 @@ interface ChatInputProps {
   onSend: (text: string) => void;
   disabled?: boolean;
   placeholder?: string;
+  streaming?: boolean;
+  onStop?: () => void;
 }
 
 export function ChatInput({
   onSend,
   disabled = false,
   placeholder = "Ask a question…",
+  streaming = false,
+  onStop,
 }: ChatInputProps) {
   const [value, setValue] = useState("");
 
@@ -30,7 +34,7 @@ export function ChatInput({
     }
   };
 
-  const canSend = value.trim().length > 0 && !disabled;
+  const canSend = value.trim().length > 0 && !disabled && !streaming;
 
   return (
     <div className="flex gap-2 items-end rounded-xl border border-slate-200 bg-white p-2 shadow-sm focus-within:ring-2 focus-within:ring-slate-300 focus-within:border-slate-300">
@@ -44,20 +48,31 @@ export function ChatInput({
         className="min-h-[44px] max-h-32 flex-1 resize-y bg-transparent px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 outline-none disabled:opacity-60"
         aria-label="Message"
       />
-      <button
-        type="button"
-        onClick={send}
-        disabled={!canSend}
-        className={cn(
-          "shrink-0 rounded-lg px-4 py-2.5 text-sm font-medium transition-colors",
-          canSend
-            ? "bg-slate-800 text-white hover:bg-slate-700"
-            : "bg-slate-200 text-slate-500 cursor-not-allowed"
-        )}
-        aria-label="Send"
-      >
-        Send
-      </button>
+      {streaming && onStop ? (
+        <button
+          type="button"
+          onClick={onStop}
+          className="shrink-0 rounded-lg px-4 py-2.5 text-sm font-medium bg-red-100 text-red-800 hover:bg-red-200 transition-colors"
+          aria-label="Stop"
+        >
+          Stop
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={send}
+          disabled={!canSend}
+          className={cn(
+            "shrink-0 rounded-lg px-4 py-2.5 text-sm font-medium transition-colors",
+            canSend
+              ? "bg-slate-800 text-white hover:bg-slate-700"
+              : "bg-slate-200 text-slate-500 cursor-not-allowed"
+          )}
+          aria-label="Send"
+        >
+          Send
+        </button>
+      )}
     </div>
   );
 }

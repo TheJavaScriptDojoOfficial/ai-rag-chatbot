@@ -17,13 +17,13 @@ apps/api/
         ai.py            # GET /ai/health, POST /ai/chat (plain LLM debug)
         ingest.py        # GET /ingest/health, POST /ingest/preview
         vector.py        # GET /vector/health, POST /vector/index, POST /vector/search, DELETE /vector/index
-        rag.py           # GET /rag/health, POST /rag/chat, POST /rag/chat/preview
+        rag.py           # GET /rag/health, POST /rag/chat, POST /rag/chat/stream, POST /rag/chat/preview
     core/
       config.py          # Env-based config (pydantic-settings)
     schemas/
       ai.py, ingest.py, vector.py, rag.py
     services/
-      ollama_client.py   # chat + chat_with_options (system + temperature)
+      ollama_client.py   # chat, chat_with_options, chat_with_options_stream (streaming)
       embeddings.py      # Ollama /api/embed
       vector_store/      # Chroma
       indexing/         # index + search
@@ -359,6 +359,43 @@ python -m app.cli_rag --question "What is the policy?" --debug
 - If no chunks pass the score filter, the API returns a safe message: *"I could not find enough support in the indexed documents to answer that confidently."* No LLM call in that case.
 - Sources are citation-ready: `file_name`, `chunk_index`, `score`, `text`, `metadata`.
 - No multi-turn or chat history persistence yet.
+
+---
+
+## Phase 7 — Streaming responses
+
+A streaming RAG endpoint returns answer text progressively via **Server-Sent Events (SSE)**. The non-streaming **POST /rag/chat** is unchanged and remains the stable JSON fallback.
+
+### New endpoint: POST /rag/chat/stream
+
+- **Purpose:** Same RAG flow (retrieve → build prompt → generate) but streams answer tokens and ends with a `complete` event containing the full answer, sources, and optional debug.
+- **Content-Type:** `text/event-stream`.
+- **Event types:** `retrieval` (counts), `token` (incremental text), `complete` (final answer + sources + debug), `error` (message).
+
+### How to test streaming manually
+
+```bash
+curl -N -X POST http://localhost:8000/rag/chat/stream \
+  -H "Content-Type: application/json" \
+  -d '{"message": "How does leave approval work?", "include_sources": true, "include_debug": false}'
+```
+
+You should see SSE lines such as:
+
+```
+event: retrieval
+data: {"retrieved_count": 5, "selected_count": 3}
+
+event: token
+data: {"text": "Leave "}
+event: token
+data: {"text": "approval "}
+...
+event: complete
+data: {"model": "qwen2.5:7b", "answer": "...", "sources": [...], "debug": null}
+```
+
+- **POST /rag/chat** — Still available for non-streaming JSON; use when streaming is unavailable or for simpler clients.
 
 ---
 

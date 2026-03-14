@@ -1,11 +1,14 @@
 """
-RAG routes: health and retrieval-augmented chat.
+RAG routes: health, retrieval-augmented chat (JSON and streaming).
 """
+import json
+
 from fastapi import APIRouter
+from fastapi.responses import StreamingResponse
 
 from app.core.config import get_settings
 from app.schemas.rag import RAGChatRequest, RAGChatResponse
-from app.services.rag.rag_service import run_rag_chat, run_rag_preview
+from app.services.rag.rag_service import run_rag_chat, run_rag_chat_stream, run_rag_preview
 
 router = APIRouter(prefix="/rag", tags=["rag"])
 
@@ -31,9 +34,35 @@ def rag_health():
 def rag_chat(body: RAGChatRequest):
     """
     Retrieval-augmented answer: retrieve chunks -> build grounded prompt -> generate answer.
-    Returns answer, sources, and optional debug.
+    Returns answer, sources, and optional debug. Non-streaming; use /rag/chat/stream for streaming.
     """
     return run_rag_chat(body)
+
+
+def _sse_stream(body: RAGChatRequest):
+    """Yield SSE-formatted bytes from RAG stream events."""
+    for event_dict in run_rag_chat_stream(body):
+        event = event_dict.get("event", "")
+        data = event_dict.get("data", {})
+        data_str = json.dumps(data) if data is not None else "{}"
+        yield f"event: {event}\ndata: {data_str}\n\n"
+
+
+@router.post("/chat/stream")
+def rag_chat_stream(body: RAGChatRequest):
+    """
+    Streaming RAG: SSE events retrieval -> token chunks -> complete (answer, sources, debug).
+    Use for progressive answer display. POST /rag/chat remains the non-streaming fallback.
+    """
+    return StreamingResponse(
+        _sse_stream(body),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.post("/chat/preview")

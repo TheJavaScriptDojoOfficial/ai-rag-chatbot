@@ -45,8 +45,9 @@ Open [http://localhost:3000](http://localhost:3000). The frontend talks to the F
 
 ## Current Phase
 
-- **Phase 6 — Next.js chat frontend:** Chat UI, RAG integration (`POST /rag/chat`), source citations, health/status panel, debug mode. No streaming, auth, or persistent chat history.
-- Backend: RAG, vector DB, ingest, and AI routes are in place.
+- **Phase 7 — Streaming and indexing UI:** Streaming RAG answers via `POST /rag/chat/stream` (SSE), Stop button, fallback to non-streaming `POST /rag/chat`. Frontend: tabbed right panel (Status, Debug, Indexing) with Run Indexing, Clear Index, Preview Docs, and improved status/readiness details.
+- **Phase 6:** Chat UI, RAG integration, source citations, health/status, debug mode.
+- Backend: RAG (streaming + non-streaming), vector DB, ingest, and AI routes are in place.
 
 ## Requirements
 
