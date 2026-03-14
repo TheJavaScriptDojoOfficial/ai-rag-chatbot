@@ -21,6 +21,8 @@ export async function postRAGChat(
       min_score: body.min_score ?? undefined,
       include_sources: body.include_sources ?? true,
       include_debug: body.include_debug ?? false,
+      session_id: body.session_id ?? undefined,
+      use_session_memory: body.use_session_memory ?? true,
     }),
   });
 }
@@ -31,6 +33,7 @@ export interface RAGStreamCompletePayload {
   answer: string;
   sources: RAGSource[];
   debug?: RAGDebugInfo | null;
+  message_id?: string | null;
 }
 
 /** Handlers for streamRagChat */
@@ -61,6 +64,8 @@ export async function streamRagChat(
       min_score: request.min_score ?? undefined,
       include_sources: request.include_sources ?? true,
       include_debug: request.include_debug ?? false,
+      session_id: request.session_id ?? undefined,
+      use_session_memory: request.use_session_memory ?? true,
     }),
     signal,
   });
@@ -110,6 +115,7 @@ export async function streamRagChat(
           answer: (parsed.answer as string) ?? "",
           sources: (parsed.sources as RAGSource[]) ?? [],
           debug: (parsed.debug as RAGDebugInfo | null) ?? null,
+          message_id: (parsed.message_id as string | null) ?? null,
         });
       } else if (event === "error") {
         handlers.onError?.((parsed.message as string) ?? "Unknown error");

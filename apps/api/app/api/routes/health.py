@@ -19,4 +19,6 @@ def health():
         "vector_configured": True,
         "vector_provider": settings.vector_db_provider,
         "rag_configured": True,
+        "sessions_configured": True,
+        "feedback_configured": True,
     }

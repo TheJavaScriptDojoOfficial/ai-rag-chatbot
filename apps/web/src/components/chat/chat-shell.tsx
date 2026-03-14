@@ -5,6 +5,7 @@ import { MessageList } from "./message-list";
 import { ChatInput } from "./chat-input";
 import { UtilityPanel } from "./utility-panel";
 import { postRAGChat, streamRagChat } from "@/lib/api/rag";
+import { getSession } from "@/lib/api/sessions";
 import {
   getHealth,
   getRAGHealth,
@@ -20,6 +21,7 @@ import type {
 } from "@/lib/types/health";
 import type { IngestHealthResponse } from "@/lib/api/ingest";
 import type { ApiError } from "@/lib/api/client";
+import type { ChatMessageRecord } from "@/lib/types/sessions";
 
 const EMPTY_SUMMARY: AppHealthSummary = {
   api: "unreachable",
@@ -59,7 +61,25 @@ function getErrorMessage(err: unknown): string {
   return "Something went wrong. Please try again.";
 }
 
-export function ChatShell() {
+function recordToChatMessage(m: ChatMessageRecord): ChatMessage {
+  const createdAt = typeof m.created_at === "string" ? new Date(m.created_at).getTime() : Date.now();
+  return {
+    id: m.id,
+    role: m.role as "user" | "assistant" | "system",
+    content: m.content ?? "",
+    sources: Array.isArray(m.sources) ? (m.sources as ChatMessage["sources"]) : undefined,
+    debug: m.debug ?? undefined,
+    createdAt,
+    error: m.error ?? undefined,
+    messageId: m.id,
+  };
+}
+
+interface ChatShellProps {
+  activeSessionId: string | null;
+}
+
+export function ChatShell({ activeSessionId }: ChatShellProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(false);
   const [streaming, setStreaming] = useState(false);
@@ -71,6 +91,24 @@ export function ChatShell() {
   const [ragHealth, setRagHealth] = useState<RAGHealthResponse | null>(null);
   const [vectorHealth, setVectorHealth] = useState<VectorHealthResponse | null>(null);
   const [ingestHealth, setIngestHealth] = useState<IngestHealthResponse | null>(null);
+
+  const loadSessionMessages = useCallback(async (sessionId: string) => {
+    try {
+      const data = await getSession(sessionId);
+      const list = (data.messages ?? []).map(recordToChatMessage);
+      setMessages(list);
+    } catch {
+      setMessages([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeSessionId) {
+      loadSessionMessages(activeSessionId);
+    } else {
+      setMessages([]);
+    }
+  }, [activeSessionId, loadSessionMessages]);
 
   const fetchHealth = useCallback(async () => {
     setHealthLoading(true);
@@ -151,13 +189,17 @@ export function ChatShell() {
       const streamErrorRef = { current: null as string | null };
       const streamHadContentRef = { current: false };
 
+      const ragRequest = {
+        message: text,
+        include_sources: true,
+        include_debug: debugMode,
+        session_id: activeSessionId ?? undefined,
+        use_session_memory: true,
+      };
+
       const tryStreaming = async () => {
         await streamRagChat(
-          {
-            message: text,
-            include_sources: true,
-            include_debug: debugMode,
-          },
+          ragRequest,
           {
             onToken: (chunk) => {
               streamHadContentRef.current = true;
@@ -179,6 +221,7 @@ export function ChatShell() {
                         content: payload.answer || m.content,
                         sources: payload.sources ?? [],
                         debug: payload.debug ?? undefined,
+                        messageId: payload.message_id ?? undefined,
                       }
                     : m
                 )
@@ -227,11 +270,7 @@ export function ChatShell() {
 
       if (streamErrorRef.current && !streamHadContentRef.current) {
         try {
-          const res = await postRAGChat({
-            message: text,
-            include_sources: true,
-            include_debug: debugMode,
-          });
+          const res = await postRAGChat(ragRequest);
           setMessages((prev) =>
             prev.map((m) =>
               m.id === assistantId
@@ -241,6 +280,7 @@ export function ChatShell() {
                     sources: res.sources ?? [],
                     debug: res.debug ?? undefined,
                     error: undefined,
+                    messageId: res.message_id ?? undefined,
                   }
                 : m
             )
@@ -257,7 +297,7 @@ export function ChatShell() {
         }
       }
     },
-    [debugMode]
+    [debugMode, activeSessionId]
   );
 
   const stopStreaming = useCallback(() => {
@@ -274,40 +314,46 @@ export function ChatShell() {
         {empty ? (
           <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
             <p className="text-slate-600">
-              Ask a question about your indexed company docs.
+              {activeSessionId
+                ? "Ask a question about your indexed company docs."
+                : "Select a chat or start a new one to begin."}
             </p>
-            <div className="mt-4 flex flex-wrap justify-center gap-2">
-              {[
-                "How does leave approval work?",
-                "What is the reimbursement process?",
-                "Summarize the onboarding policy.",
-              ].map((example) => (
-                <button
-                  key={example}
-                  type="button"
-                  onClick={() => sendMessage(example)}
-                  disabled={loading}
-                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-                >
-                  {example}
-                </button>
-              ))}
-            </div>
+            {activeSessionId && (
+              <div className="mt-4 flex flex-wrap justify-center gap-2">
+                {[
+                  "How does leave approval work?",
+                  "What is the reimbursement process?",
+                  "Summarize the onboarding policy.",
+                ].map((example) => (
+                  <button
+                    key={example}
+                    type="button"
+                    onClick={() => sendMessage(example)}
+                    disabled={loading}
+                    className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                  >
+                    {example}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         ) : (
           <MessageList
             messages={messages}
             showDebug={debugMode}
             loading={loading}
+            activeSessionId={activeSessionId}
           />
         )}
       </div>
       <div className="shrink-0 border-t border-slate-200 bg-white p-4">
         <ChatInput
           onSend={sendMessage}
-          disabled={loading}
+          disabled={loading || !activeSessionId}
           streaming={streaming}
           onStop={stopStreaming}
+          placeholder={activeSessionId ? undefined : "Select or start a chat to send a message"}
         />
       </div>
     </div>

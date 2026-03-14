@@ -14,4 +14,6 @@ export interface ChatMessage {
   debug?: RAGDebugInfo | null;
   createdAt: number;
   error?: string;
+  /** Backend message id when persisted (for feedback). */
+  messageId?: string | null;
 }

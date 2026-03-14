@@ -3,12 +3,13 @@ RAG routes: health, retrieval-augmented chat (JSON and streaming).
 """
 import json
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
 from app.core.config import get_settings
 from app.schemas.rag import RAGChatRequest, RAGChatResponse
 from app.services.rag.rag_service import run_rag_chat, run_rag_chat_stream, run_rag_preview
+from app.services.sessions.session_repository import get_session
 
 router = APIRouter(prefix="/rag", tags=["rag"])
 
@@ -35,7 +36,10 @@ def rag_chat(body: RAGChatRequest):
     """
     Retrieval-augmented answer: retrieve chunks -> build grounded prompt -> generate answer.
     Returns answer, sources, and optional debug. Non-streaming; use /rag/chat/stream for streaming.
+    When session_id is set, session must exist (404 otherwise); messages are persisted and message_id returned.
     """
+    if body.session_id and not get_session(body.session_id):
+        raise HTTPException(status_code=404, detail="Session not found")
     return run_rag_chat(body)
 
 

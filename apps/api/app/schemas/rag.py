@@ -14,6 +14,8 @@ class RAGChatRequest(BaseModel):
     min_score: Optional[float] = Field(None, ge=0.0, le=1.0)
     include_sources: bool = Field(True, description="Include source chunks in response")
     include_debug: bool = Field(False, description="Include retrieval/generation debug info")
+    session_id: Optional[str] = Field(None, description="If set, store messages and optionally use recent history")
+    use_session_memory: bool = Field(True, description="When session_id is set, include recent conversation in prompt")
 
 
 class RAGSource(BaseModel):
@@ -39,6 +41,8 @@ class RAGDebugInfo(BaseModel):
     selected_count: int
     model: str
     prompt_name: str
+    session_id: Optional[str] = None
+    memory_messages_used: Optional[int] = None
 
 
 class RAGChatResponse(BaseModel):
@@ -49,6 +53,7 @@ class RAGChatResponse(BaseModel):
     answer: str
     sources: List[RAGSource] = Field(default_factory=list)
     debug: Optional[RAGDebugInfo] = Field(None)
+    message_id: Optional[str] = Field(None, description="Stored assistant message id when session_id was set")
 
 
 class RetrievalCandidate(BaseModel):

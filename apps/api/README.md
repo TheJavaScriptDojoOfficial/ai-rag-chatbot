@@ -18,10 +18,13 @@ apps/api/
         ingest.py        # GET /ingest/health, POST /ingest/preview
         vector.py        # GET /vector/health, POST /vector/index, POST /vector/search, DELETE /vector/index
         rag.py           # GET /rag/health, POST /rag/chat, POST /rag/chat/stream, POST /rag/chat/preview
+        sessions.py      # GET/POST /sessions, GET/PATCH/DELETE /sessions/{id}
+        feedback.py     # POST /feedback, GET /feedback (dev)
     core/
       config.py          # Env-based config (pydantic-settings)
+      db.py              # SQLite init (Phase 8)
     schemas/
-      ai.py, ingest.py, vector.py, rag.py
+      ai.py, ingest.py, vector.py, rag.py, sessions.py, feedback.py
     services/
       ollama_client.py   # chat, chat_with_options, chat_with_options_stream (streaming)
       embeddings.py      # Ollama /api/embed
@@ -29,6 +32,8 @@ apps/api/
       indexing/         # index + search
       retrieval/        # retrieve(): search + filter + dedupe + trim
       rag/              # prompt_builder, rag_service
+      sessions/        # session_repository, session_service (Phase 8)
+      feedback/        # feedback_repository, feedback_service (Phase 8)
       ingestion/
     utils/
       files.py
@@ -399,6 +404,52 @@ data: {"model": "qwen2.5:7b", "answer": "...", "sources": [...], "debug": null}
 
 ---
 
+## Phase 8 — Conversation memory, chat sessions, and feedback
+
+Lightweight local persistence for chat sessions, optional use of recent conversation in RAG prompts, and answer feedback capture. No auth or multi-user; single SQLite DB for local/dev use.
+
+### SQLite storage
+
+- **Path:** `SQLITE_DB_PATH` (default `./data/app/chatbot.sqlite3`). Directory `APP_DATA_DIRECTORY` (default `./data/app`) is created on startup.
+- **Tables:** `chat_sessions`, `chat_messages`, `answer_feedback`. Created automatically at startup.
+
+### Session endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | /sessions | List chat sessions (ordered by `updated_at` desc) |
+| POST | /sessions | Create new session (optional `title` in body) |
+| GET | /sessions/{session_id} | Get session summary + all messages (by sequence) |
+| PATCH | /sessions/{session_id} | Rename session (`title` in body) |
+| DELETE | /sessions/{session_id} | Delete session and its messages |
+| DELETE | /sessions | Delete all sessions (local dev reset) |
+
+### Feedback endpoint
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | /feedback | Submit answer feedback. Body: `session_id`, `message_id`, `feedback_type` (`up` \| `down`), optional `comment`, `question_text`, `answer_text`, `sources`, `debug`. |
+| GET | /feedback | List recent feedback (dev inspection; optional `limit`) |
+
+### Session memory in RAG
+
+- **POST /rag/chat** and **POST /rag/chat/stream** accept optional `session_id` and `use_session_memory` (default `true`).
+- When `session_id` is set and valid: the current user message and assistant answer are stored in that session. The assistant message id is returned as `message_id` (for feedback).
+- When `session_id` and `use_session_memory` are set: up to `MAX_SESSION_MESSAGES_FOR_CONTEXT` (default 8) recent user/assistant turns are fetched and included in the RAG prompt as **conversation context only**. Retrieval is still driven by the **current** user message; history is for continuity, not replacement for retrieved docs.
+- If `session_id` is provided but the session does not exist, the API returns **404** (session not found).
+- Memory is **recent-context only**; there is no long-term memory across all sessions or embeddings over chat history.
+
+### Config (Phase 8)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `APP_DATA_DIRECTORY` | ./data/app | Directory for SQLite and app data |
+| `SQLITE_DB_PATH` | ./data/app/chatbot.sqlite3 | SQLite database file path |
+| `MAX_SESSION_MESSAGES_FOR_CONTEXT` | 8 | Max recent messages included in RAG prompt |
+| `SESSION_TITLE_MAX_CHARS` | 80 | Max length for session title (from first question or rename) |
+
+---
+
 ## Configuration
 
 | Variable | Default | Description |
@@ -425,6 +476,10 @@ data: {"model": "qwen2.5:7b", "answer": "...", "sources": [...], "debug": null}
 | `RAG_MIN_SCORE` | 0.15 | Min similarity score |
 | `RAG_TEMPERATURE` | 0.2 | LLM temperature for RAG |
 | `RAG_SYSTEM_PROMPT_NAME` | default_company_assistant | Prompt template |
+| `APP_DATA_DIRECTORY` | ./data/app | App data directory (Phase 8) |
+| `SQLITE_DB_PATH` | ./data/app/chatbot.sqlite3 | SQLite DB path (Phase 8) |
+| `MAX_SESSION_MESSAGES_FOR_CONTEXT` | 8 | Recent messages in RAG context (Phase 8) |
+| `SESSION_TITLE_MAX_CHARS` | 80 | Max session title length (Phase 8) |
 
 ---
 

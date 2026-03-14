@@ -1,18 +1,56 @@
 "use client";
 
+import { useState, useCallback } from "react";
 import { cn } from "@/lib/utils/cn";
 import type { ChatMessage } from "@/lib/types/chat";
+import type { FeedbackType } from "@/lib/types/feedback";
 import { SourceList } from "./source-list";
 import { formatDate } from "@/lib/utils/format";
+import { submitFeedback } from "@/lib/api/feedback";
 
 interface MessageBubbleProps {
   message: ChatMessage;
   showDebug?: boolean;
+  sessionId?: string;
 }
 
-export function MessageBubble({ message, showDebug }: MessageBubbleProps) {
+export function MessageBubble({ message, showDebug, sessionId }: MessageBubbleProps) {
   const isUser = message.role === "user";
   const isAssistant = message.role === "assistant";
+  const [feedbackSent, setFeedbackSent] = useState<FeedbackType | null>(null);
+  const [feedbackError, setFeedbackError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const canFeedback =
+    isAssistant &&
+    sessionId &&
+    message.messageId &&
+    message.content &&
+    !feedbackSent;
+
+  const sendFeedback = useCallback(
+    async (type: FeedbackType) => {
+      if (!sessionId || !message.messageId || submitting || feedbackSent) return;
+      setSubmitting(true);
+      setFeedbackError(null);
+      try {
+        await submitFeedback({
+          session_id: sessionId,
+          message_id: message.messageId,
+          feedback_type: type,
+          answer_text: message.content,
+          sources: message.sources,
+          debug: message.debug ?? undefined,
+        });
+        setFeedbackSent(type);
+      } catch {
+        setFeedbackError("Could not send feedback");
+      } finally {
+        setSubmitting(false);
+      }
+    },
+    [sessionId, message.messageId, message.content, message.sources, message.debug, submitting, feedbackSent]
+  );
 
   return (
     <div
@@ -62,6 +100,51 @@ export function MessageBubble({ message, showDebug }: MessageBubbleProps) {
                 {message.debug.prompt_name}
               </dd>
             </dl>
+          </div>
+        )}
+        {canFeedback && (
+          <div className="mt-2 flex items-center gap-2">
+            <span className="text-xs text-slate-500">Helpful?</span>
+            <button
+              type="button"
+              onClick={() => sendFeedback("up")}
+              disabled={submitting}
+              className={cn(
+                "rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 disabled:opacity-50",
+                feedbackSent === "up" && "text-green-600"
+              )}
+              aria-label="Thumbs up"
+              title="Helpful"
+            >
+              <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 11V4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v7" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              onClick={() => sendFeedback("down")}
+              disabled={submitting}
+              className={cn(
+                "rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 disabled:opacity-50",
+                feedbackSent === "down" && "text-red-600"
+              )}
+              aria-label="Thumbs down"
+              title="Not helpful"
+            >
+              <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-11V4a1 1 0 0 0-1-1h-2a1 1 0 0 0-1 1v7" />
+              </svg>
+            </button>
+            {feedbackSent && (
+              <span className="text-xs text-slate-500">
+                {feedbackSent === "up" ? "Thanks" : "Recorded"}
+              </span>
+            )}
+            {feedbackError && (
+              <span className="text-xs text-red-600" role="alert">
+                {feedbackError}
+              </span>
+            )}
           </div>
         )}
         <div

@@ -21,6 +21,8 @@ export interface RAGDebugInfo {
   selected_count: number;
   model: string;
   prompt_name: string;
+  session_id?: string | null;
+  memory_messages_used?: number | null;
 }
 
 export interface RAGChatRequest {
@@ -29,6 +31,8 @@ export interface RAGChatRequest {
   min_score?: number;
   include_sources?: boolean;
   include_debug?: boolean;
+  session_id?: string;
+  use_session_memory?: boolean;
 }
 
 export interface RAGChatResponse {
@@ -37,4 +41,5 @@ export interface RAGChatResponse {
   answer: string;
   sources: RAGSource[];
   debug?: RAGDebugInfo | null;
+  message_id?: string | null;
 }

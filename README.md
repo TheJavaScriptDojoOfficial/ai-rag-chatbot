@@ -45,9 +45,10 @@ Open [http://localhost:3000](http://localhost:3000). The frontend talks to the F
 
 ## Current Phase
 
-- **Phase 7 — Streaming and indexing UI:** Streaming RAG answers via `POST /rag/chat/stream` (SSE), Stop button, fallback to non-streaming `POST /rag/chat`. Frontend: tabbed right panel (Status, Debug, Indexing) with Run Indexing, Clear Index, Preview Docs, and improved status/readiness details.
+- **Phase 8 — Conversation memory, chat sessions, feedback:** Backend: SQLite-backed chat sessions and messages, session and feedback API routes; RAG accepts optional `session_id` and uses recent conversation as context; messages and `message_id` returned for feedback. Frontend: session sidebar (new chat, switch, rename, delete), session-aware chat with persisted messages, thumbs up/down feedback on assistant answers.
+- **Phase 7:** Streaming RAG (SSE), Stop button, indexing UI (Run Indexing, Clear Index, Preview Docs).
 - **Phase 6:** Chat UI, RAG integration, source citations, health/status, debug mode.
-- Backend: RAG (streaming + non-streaming), vector DB, ingest, and AI routes are in place.
+- Backend: RAG (streaming + non-streaming), vector DB, ingest, sessions, feedback, and AI routes are in place.
 
 ## Requirements
 

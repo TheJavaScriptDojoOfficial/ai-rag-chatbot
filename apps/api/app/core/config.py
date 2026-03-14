@@ -44,6 +44,12 @@ class Settings(BaseSettings):
     rag_temperature: float = 0.2
     rag_system_prompt_name: str = "default_company_assistant"
 
+    # Session and feedback storage (Phase 8)
+    app_data_directory: str = "./data/app"
+    sqlite_db_path: str = "./data/app/chatbot.sqlite3"
+    max_session_messages_for_context: int = 8
+    session_title_max_chars: int = 80
+
     @property
     def cors_origins_list(self) -> List[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]

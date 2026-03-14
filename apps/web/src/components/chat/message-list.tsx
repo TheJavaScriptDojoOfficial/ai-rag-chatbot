@@ -8,12 +8,14 @@ interface MessageListProps {
   messages: ChatMessage[];
   showDebug?: boolean;
   loading?: boolean;
+  activeSessionId?: string | null;
 }
 
 export function MessageList({
   messages,
   showDebug = false,
   loading = false,
+  activeSessionId = null,
 }: MessageListProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -32,6 +34,7 @@ export function MessageList({
           key={msg.id}
           message={msg}
           showDebug={showDebug}
+          sessionId={activeSessionId ?? undefined}
         />
       ))}
       {loading && messages.length > 0 && messages[messages.length - 1]?.role !== "assistant" && (
