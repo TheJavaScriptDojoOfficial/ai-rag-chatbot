@@ -1,0 +1,56 @@
+# Dependencies
+node_modules/
+apps/web/node_modules/
+apps/api/venv/
+apps/api/.venv/
+apps/api/__pycache__/
+apps/api/*.py[cod]
+apps/api/$py.class
+apps/api/*.so
+apps/api/.Python
+apps/api/.pytest_cache/
+apps/api/.coverage
+apps/api/htmlcov/
+
+# Next.js
+.next/
+out/
+
+# Build outputs
+dist/
+build/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Python
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Generated / local storage
+*.db
+*.sqlite
+*.sqlite3
+data/
+storage/
+
+# Logs
+*.log
+npm-debug.log*
