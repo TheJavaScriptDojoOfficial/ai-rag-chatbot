@@ -1,14 +1,33 @@
 """
-Minimal config using environment variables.
-Ready for future CORS and app settings.
+Environment-based configuration. Load from env with clean defaults for local dev.
 """
-import os
+from functools import lru_cache
+from typing import List
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-def get_env(key: str, default: str = "") -> str:
-    return os.getenv(key, default)
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    app_name: str = "Company RAG API"
+    app_env: str = "development"
+    api_port: int = 8000
+    cors_origins: str = "http://localhost:3000"
+
+    ollama_base_url: str = "http://localhost:11434"
+    ollama_chat_model: str = "qwen2.5:7b"
+    ollama_timeout_seconds: int = 120
+
+    @property
+    def cors_origins_list(self) -> List[str]:
+        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
 
-# CORS: allowed origins (comma-separated in env, or default for local dev)
-CORS_ORIGINS_RAW = get_env("CORS_ORIGINS", "http://localhost:3000")
-CORS_ORIGINS = [origin.strip() for origin in CORS_ORIGINS_RAW.split(",") if origin.strip()]
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
