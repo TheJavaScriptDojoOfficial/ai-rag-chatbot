@@ -27,10 +27,12 @@ class OllamaClient:
         base_url: str,
         model: str,
         timeout_seconds: float,
+        num_ctx: Optional[int] = None,
     ):
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.timeout = timeout_seconds
+        self.num_ctx = num_ctx
 
     def _client(self) -> httpx.Client:
         return httpx.Client(base_url=self.base_url, timeout=self.timeout)
@@ -105,6 +107,14 @@ class OllamaClient:
             "response": content,
         }
 
+    def _build_options(self, temperature: Optional[float] = None) -> Dict[str, Any]:
+        opts: Dict[str, Any] = {}
+        if temperature is not None:
+            opts["temperature"] = temperature
+        if self.num_ctx is not None:
+            opts["num_ctx"] = self.num_ctx
+        return opts
+
     def chat_with_options(
         self,
         messages: List[Dict[str, str]],
@@ -115,13 +125,14 @@ class OllamaClient:
         Optional temperature. Returns {"model": "...", "response": "..."}.
         Raises OllamaError on failure.
         """
-        payload = {
+        payload: Dict[str, Any] = {
             "model": self.model,
             "messages": messages,
             "stream": False,
         }
-        if temperature is not None:
-            payload["options"] = {"temperature": temperature}
+        opts = self._build_options(temperature)
+        if opts:
+            payload["options"] = opts
         try:
             with self._client() as client:
                 r = client.post("/api/chat", json=payload)
@@ -171,13 +182,14 @@ class OllamaClient:
         Stream chat completion from Ollama. Yields incremental text chunks.
         Does not raise; yields nothing and returns on connection/parse errors.
         """
-        payload = {
+        payload: Dict[str, Any] = {
             "model": self.model,
             "messages": messages,
             "stream": True,
         }
-        if temperature is not None:
-            payload["options"] = {"temperature": temperature}
+        opts = self._build_options(temperature)
+        if opts:
+            payload["options"] = opts
         try:
             with self._client() as client:
                 with client.stream("POST", "/api/chat", json=payload) as response:

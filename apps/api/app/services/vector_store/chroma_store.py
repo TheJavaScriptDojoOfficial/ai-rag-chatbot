@@ -41,7 +41,7 @@ class ChromaStore:
         # Collection without embedding function; we supply embeddings ourselves
         self._collection = self._client.get_or_create_collection(
             name=collection_name,
-            metadata={"description": "Company knowledge base chunks"},
+            metadata={"hnsw:space": "cosine", "description": "Company knowledge base chunks"},
         )
 
     def add_chunks(
@@ -76,7 +76,7 @@ class ChromaStore:
         self._client.delete_collection(name=self.collection_name)
         self._collection = self._client.get_or_create_collection(
             name=self.collection_name,
-            metadata={"description": "Company knowledge base chunks"},
+            metadata={"hnsw:space": "cosine", "description": "Company knowledge base chunks"},
         )
 
     def search(

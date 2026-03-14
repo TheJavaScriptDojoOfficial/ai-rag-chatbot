@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://localhost:11434"
     ollama_chat_model: str = "qwen2.5:7b"
     ollama_timeout_seconds: int = 120
+    ollama_num_ctx: int = 4096
 
     # Document ingestion (Phase 3)
     docs_base_path: str = "./docs"

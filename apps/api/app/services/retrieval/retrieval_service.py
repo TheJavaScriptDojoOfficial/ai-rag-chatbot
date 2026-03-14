@@ -3,11 +3,12 @@ Retrieval for RAG: search, filter by score, dedupe, trim to max context chars.
 Reuses index_service.run_search; no duplicate embedding/Chroma logic.
 """
 from dataclasses import dataclass
-from typing import List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 from app.core.config import get_settings
 from app.schemas.vector import SearchMatch
 from app.services.indexing.index_service import run_search
+from app.utils.timing import StageTimer
 
 
 @dataclass
@@ -20,6 +21,7 @@ class RetrievalResult:
     context_char_count: int
     top_k_used: int
     min_score_used: float
+    timing_ms: Optional[Dict[str, int]] = None
 
 
 def retrieve(
@@ -31,14 +33,17 @@ def retrieve(
     """
     Run semantic search, filter by min_score, dedupe by (source_id, chunk_index),
     trim to max_context_chars. Returns selected chunks and debug counts.
+    Optionally returns timing_ms (embed_query_ms, vector_search_ms, retrieval_filter_ms).
     """
     settings = get_settings()
     k = top_k if top_k is not None else settings.rag_top_k
     threshold = min_score if min_score is not None else settings.rag_min_score
     max_chars = max_context_chars if max_context_chars is not None else settings.rag_max_context_chars
 
-    search_resp = run_search(query=query, top_k=k, include_text=True)
+    timing: Dict[str, int] = {}
+    search_resp = run_search(query=query, top_k=k, include_text=True, out_timing_ms=timing)
     if search_resp.status == "error" or not search_resp.matches:
+        timing["retrieval_filter_ms"] = 0
         return RetrievalResult(
             chunks=[],
             retrieved_count=0,
@@ -46,8 +51,11 @@ def retrieve(
             context_char_count=0,
             top_k_used=k,
             min_score_used=threshold,
+            timing_ms=timing,
         )
 
+    timer = StageTimer()
+    timer.start("retrieval_filter")
     # Filter by score; dedupe by (source_id, chunk_index)
     seen: Set[Tuple[str, int]] = set()
     selected: List[SearchMatch] = []
@@ -70,6 +78,9 @@ def retrieve(
         trimmed.append(m)
         total_chars += chunk_len
 
+    timer.end("retrieval_filter")
+    timing["retrieval_filter_ms"] = timer.duration("retrieval_filter") or 0
+
     return RetrievalResult(
         chunks=trimmed,
         retrieved_count=len(search_resp.matches),
@@ -77,4 +88,5 @@ def retrieve(
         context_char_count=total_chars,
         top_k_used=k,
         min_score_used=threshold,
+        timing_ms=timing,
     )

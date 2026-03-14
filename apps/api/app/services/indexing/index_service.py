@@ -2,7 +2,8 @@
 Orchestrates ingestion -> embeddings -> vector store. Reuses ingestion pipeline.
 """
 import logging
-from typing import List, Optional
+import time
+from typing import Dict, List, Optional
 
 from app.core.config import get_settings
 from app.schemas.vector import (
@@ -150,12 +151,14 @@ def run_search(
     query: str,
     top_k: Optional[int] = None,
     include_text: bool = True,
+    out_timing_ms: Optional[Dict[str, int]] = None,
 ) -> SearchResponse:
     """Embed query, search Chroma, return matches. No answer generation."""
     settings = get_settings()
     store = get_chroma_store()
     k = top_k if top_k is not None else settings.vector_search_top_k
 
+    t0 = time.perf_counter()
     try:
         query_vectors, _ = embed_texts([query])
     except EmbeddingsError as e:
@@ -166,6 +169,8 @@ def run_search(
             match_count=0,
             matches=[],
         )
+    if out_timing_ms is not None:
+        out_timing_ms["embed_query_ms"] = int(round((time.perf_counter() - t0) * 1000))
 
     if not query_vectors:
         return SearchResponse(
@@ -176,17 +181,20 @@ def run_search(
             matches=[],
         )
 
+    t1 = time.perf_counter()
     raw = store.search(
         query_embedding=query_vectors[0],
         top_k=k,
         include_documents=include_text,
     )
+    if out_timing_ms is not None:
+        out_timing_ms["vector_search_ms"] = int(round((time.perf_counter() - t1) * 1000))
 
-    # Chroma returns L2 distance (lower = more similar). Convert to score in (0, 1], higher = better.
+    # Chroma cosine distance: distance = 1 - cosine_similarity. Score = cosine_similarity.
     matches: List[SearchMatch] = []
     for item in raw:
         dist = item.get("distance", 0.0)
-        score = 1.0 / (1.0 + dist) if dist is not None else 1.0
+        score = max(0.0, 1.0 - dist) if dist is not None else 1.0
         meta = item.get("metadata") or {}
         text = item.get("document", "") if include_text else ""
         matches.append(
