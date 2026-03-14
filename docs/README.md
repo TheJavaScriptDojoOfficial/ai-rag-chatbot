@@ -35,3 +35,22 @@ Add your own `.pdf`, `.md`, or `.txt` files. Do not commit proprietary or sensit
      -d '{"path": "../../docs", "recursive": true, "reset_collection": true}'
    ```
 5. Use the chat UI or `POST /rag/chat` to ask questions; answers will be grounded in the indexed PDF.
+
+## Manual steps after config changes
+
+- **After changing chunk size or overlap** (`CHUNK_SIZE_CHARS`, `CHUNK_OVERLAP_CHARS` in `apps/api/.env`): you must **re-index** so existing vectors match the new chunking. From `apps/api`: `python -m app.cli_index --reset-collection` (or use the Indexing panel in the UI: Reset collection before indexing → Run Indexing).
+- **After changing RAG or docs path** in `.env`: **restart the API** (e.g. restart `uvicorn`) so the new values are loaded.
+
+## If some questions still miss content
+
+For long PDFs (e.g. 30+ pages), the app is tuned with higher `RAG_TOP_K` and larger chunks. If a specific article or term is still not found:
+
+1. In `apps/api/.env`, try `RAG_TOP_K=18` or `20`, and/or `RAG_MIN_SCORE=0.08`.
+2. Restart the API, then ask again. No need to re-index for RAG_TOP_K / RAG_MIN_SCORE changes.
+
+## If responses feel slow (6–7 seconds)
+
+Most of the time is **Ollama** (embedding the query + generating the answer). Chroma search is fast and the Chroma client is reused. To improve perceived speed:
+
+1. **Streaming** – The UI shows “Finding relevant sections…” as soon as retrieval finishes, then streams the answer. You see progress instead of a long blank wait.
+2. **Faster model** (optional) – Use a smaller chat model for quicker first token, e.g. `qwen2.5:3b`. In `apps/api/.env` set `OLLAMA_CHAT_MODEL=qwen2.5:3b` and run `ollama pull qwen2.5:3b`, then restart the API. Quality may be slightly lower than 7b.

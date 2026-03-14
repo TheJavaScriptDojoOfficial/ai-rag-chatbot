@@ -197,18 +197,28 @@ export function ChatShell({ activeSessionId }: ChatShellProps) {
         use_session_memory: true,
       };
 
+      const RETRIEVAL_PLACEHOLDER = "Finding relevant sections…";
+
       const tryStreaming = async () => {
         await streamRagChat(
           ragRequest,
           {
+            onRetrieval: () => {
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === assistantId ? { ...m, content: RETRIEVAL_PLACEHOLDER } : m
+                )
+              );
+            },
             onToken: (chunk) => {
               streamHadContentRef.current = true;
               setMessages((prev) =>
-                prev.map((m) =>
-                  m.id === assistantId
-                    ? { ...m, content: (m.content || "") + chunk }
-                    : m
-                )
+                prev.map((m) => {
+                  if (m.id !== assistantId) return m;
+                  const current = m.content || "";
+                  const isPlaceholder = current === RETRIEVAL_PLACEHOLDER;
+                  return { ...m, content: isPlaceholder ? chunk : current + chunk };
+                })
               );
             },
             onComplete: (payload) => {

@@ -2,6 +2,7 @@
 ChromaDB persistent vector store. Add chunks with embeddings, search by query embedding.
 """
 import logging
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -115,8 +116,9 @@ class ChromaStore:
         return self._collection.count()
 
 
+@lru_cache(maxsize=1)
 def get_chroma_store() -> ChromaStore:
-    """Build ChromaStore from app config."""
+    """Build ChromaStore from app config. Cached so we reuse the same client per process (faster search)."""
     s = get_settings()
     return ChromaStore(
         persist_directory=s.chroma_persist_directory,
